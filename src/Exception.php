@@ -1,5 +1,5 @@
 <?php
-namespace Jasny\SSO;
+namespace Yuca\SSO;
 
 /**
  * SSO Exception

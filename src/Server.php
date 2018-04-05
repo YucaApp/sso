@@ -1,8 +1,5 @@
 <?php
-namespace Jasny\SSO;
-
-use Desarrolla2\Cache\Cache;
-use Desarrolla2\Cache\Adapter;
+namespace Yuca\SSO;
 
 /**
  * Single sign-on server.
@@ -17,14 +14,7 @@ abstract class Server
     /**
      * @var array
      */
-    protected $options = ['files_cache_directory' => '/tmp', 'files_cache_ttl' => 36000];
-
-    /**
-     * Cache that stores the special session data for the brokers.
-     *
-     * @var Cache
-     */
-    protected $cache;
+    protected $options = [];
 
     /**
      * @var string
@@ -45,20 +35,6 @@ abstract class Server
     public function __construct(array $options = [])
     {
         $this->options = $options + $this->options;
-        $this->cache = $this->createCacheAdapter();
-    }
-
-    /**
-     * Create a cache to store the broker session id.
-     *
-     * @return Cache
-     */
-    protected function createCacheAdapter()
-    {
-        $adapter = new Adapter\File($this->options['files_cache_directory']);
-        $adapter->setOption('ttl', $this->options['files_cache_ttl']);
-
-        return new Cache($adapter);
     }
 
     /**
@@ -66,6 +42,17 @@ abstract class Server
      */
     public function startBrokerSession()
     {
+        // Validate the allowed IPs
+        if (isset($this->options['allowed_ips']) && is_array($this->options['allowed_ips']) && count($this->options['allowed_ips']) > 0) {
+            if (isset($_REQUEST['referer_ip'])) {
+                if (!in_array($_REQUEST['referer_ip'], $this->options['allowed_ips'])) {
+                    return $this->fail('Restricted IP', 400);
+                }
+            } else {
+               return $this->fail('Missing referer IP', 400);
+            }
+        }
+
         if (isset($this->brokerId)) return;
 
         $sid = $this->getBrokerSessionID();
@@ -74,46 +61,47 @@ abstract class Server
             return $this->fail("Broker didn't send a session key", 400);
         }
 
-        $linkedId = $this->cache->get($sid);
+        $linkedId = $this->getCacheData($sid);
 
         if (!$linkedId) {
             return $this->fail("The broker session id isn't attached to a user session", 403);
         }
 
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            if ($linkedId !== session_id()) throw new \Exception("Session has already started", 400);
+        if ($this->isSessionStarted()) {
+            if ($linkedId !== $this->sessionId()) throw new \Exception("Session has already started", 400);
             return;
         }
 
-        session_id($linkedId);
-        session_start();
+        $this->sessionId($linkedId);
+        $this->sessionStart();
 
         $this->brokerId = $this->validateBrokerSessionId($sid);
     }
 
-            /**
-         * Get session ID from header Authorization or from $_GET/$_POST
-         */
-        protected function getBrokerSessionID()
-        {
+    /**
+     * Get session ID from header Authorization or from $_GET/$_POST
+     */
+    protected function getBrokerSessionID()
+    {
+        if (function_exists('getallheaders')) {
             $headers = getallheaders();
 
             if (isset($headers['Authorization']) &&  strpos($headers['Authorization'], 'Bearer') === 0) {
                 $headers['Authorization'] = substr($headers['Authorization'], 7);
                 return $headers['Authorization'];
             }
-            if (isset($_GET['access_token'])) {
-                return $_GET['access_token'];
-            }
-            if (isset($_POST['access_token'])) {
-                return $_POST['access_token'];
-            }
-            if (isset($_GET['sso_session'])) {
-                return $_GET['sso_session'];
-            }
-
-            return false;
         }
+
+        if (isset($_GET['access_token'])) {
+            return $_GET['access_token'];
+        }
+
+        if (isset($_POST['access_token'])) {
+            return $_POST['access_token'];
+        }
+
+        return false;
+    }
 
     /**
      * Validate the broker session id
@@ -144,7 +132,7 @@ abstract class Server
      */
     protected function startUserSession()
     {
-        if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+        if (!$this->isSessionStarted()) $this->sessionStart();
     }
 
     /**
@@ -218,8 +206,9 @@ abstract class Server
         $this->startUserSession();
         $sid = $this->generateSessionId($_REQUEST['broker'], $_REQUEST['token']);
 
-        $this->cache->set($sid, $this->getSessionData('id'));
+        $this->setCacheData($sid, $this->sessionId());
         $this->outputAttachSuccess();
+        exit();
     }
 
     /**
@@ -290,6 +279,7 @@ abstract class Server
 
         header('Content-type: application/json; charset=UTF-8');
         http_response_code(204);
+        exit();
     }
 
     /**
@@ -309,37 +299,8 @@ abstract class Server
 
         header('Content-type: application/json; charset=UTF-8');
         echo json_encode($user);
+        exit();
     }
-
-
-    /**
-     * Set session data
-     *
-     * @param string $key
-     * @param string $value
-     */
-    protected function setSessionData($key, $value)
-    {
-        if (!isset($value)) {
-            unset($_SESSION[$key]);
-            return;
-        }
-
-        $_SESSION[$key] = $value;
-    }
-
-    /**
-     * Get session data
-     *
-     * @param type $key
-     */
-    protected function getSessionData($key)
-    {
-        if ($key === 'id') return session_id();
-
-        return isset($_SESSION[$key]) ? $_SESSION[$key] : null;
-    }
-
 
     /**
      * An error occured.
@@ -374,6 +335,53 @@ abstract class Server
         exit();
     }
 
+    /**
+     * Set cache data
+     *
+     * @param string $key
+     * @param string $value
+     */
+    abstract protected function setCacheData($key, $value);
+
+    /**
+     * Get cache data
+     *
+     * @param type $key
+     */
+    abstract protected function getCacheData($key);
+
+    /**
+     * Check the session status
+     * @return boolean 
+     */
+    abstract protected function isSessionStarted();
+
+    /**
+     * Start session
+     */
+    abstract protected function sessionStart();
+
+    /**
+     * Get/set session id
+     * @param  string $id 
+     * @return string
+     */
+    abstract protected function sessionId($id = null);
+
+    /**
+     * Set session data
+     *
+     * @param string $key
+     * @param string $value
+     */
+    abstract protected function setSessionData($key, $value);
+
+    /**
+     * Get session data
+     *
+     * @param type $key
+     */
+    abstract protected function getSessionData($key);
 
     /**
      * Authenticate using user credentials
@@ -400,4 +408,3 @@ abstract class Server
      */
     abstract protected function getUserInfo($username);
 }
-

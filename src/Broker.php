@@ -1,5 +1,5 @@
 <?php
-namespace Jasny\SSO;
+namespace Yuca\SSO;
 
 /**
  * Single sign-on broker.
@@ -190,12 +190,22 @@ class Broker
         if (!$this->isAttached()) {
             throw new NotAttachedException('No token');
         }
+
+        if ($data && is_string($data)) {
+            $key = $data;
+            $data = [];
+            $data[$key] = 1;
+        }
+
+        $data['access_token'] = $this->getSessionID();
+        $data['referer_url'] = (!empty($_SERVER['HTTPS']) ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+        $data['referer_ip'] = isset($_SERVER['SERVER_ADDR']) ? $_SERVER['SERVER_ADDR'] : $_SERVER['REMOTE_ADDR'];
         $url = $this->getRequestUrl($command, !$data || $method === 'POST' ? [] : $data);
 
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Accept: application/json', 'Authorization: Bearer '. $this->getSessionID()]);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Accept: application/json', 'Authorization: Bearer '. $data['access_token']]);
 
         if ($method === 'POST' && !empty($data)) {
             $post = is_string($data) ? $data : http_build_query($data);

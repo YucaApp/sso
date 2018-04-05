@@ -1,23 +1,27 @@
 {
-    "name": "jasny/sso",
+    "name": "yuca/sso",
     "description": "Simple Single Sign-On",
     "keywords": ["sso", "auth"],
     "license": "MIT",
-    "homepage": "http://www.jasny.net/articles/simple-single-sign-on-for-php/",
+    "homepage": "https://github.com/YucaApp/sso",
     "authors": [
         {
             "name": "Arnold Daniels",
             "email": "arnold@jasny.net",
             "homepage": "http://www.jasny.net"
+        },
+        {
+            "name": "Agung Darmanto",
+            "email": "agung.darmantoo@gmail.com",
+            "homepage": "https://yuca.co/"
         }
     ],
     "support": {
-        "issues": "https://github.com/jasny/sso/issues",
-        "source": "https://github.com/jasny/sso"
+        "issues": "https://github.com/YucaApp/sso/issues",
+        "source": "https://github.com/YucaApp/sso"
     },
     "require": {
         "php": ">=5.5.0",
-        "desarrolla2/cache": "^2.0.0",
         "jasny/validation-result": "^1.0.0"
     },
     "require-dev": {
@@ -26,7 +30,7 @@
     },
     "autoload": {
         "psr-4": {
-            "Jasny\\SSO\\": "src/"
+            "Yuca\\SSO\\": "src/"
         }
     }
 }

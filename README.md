@@ -1,6 +1,12 @@
 Single Sign-On for PHP (Ajax compatible)
 ---
 
+**NOTES**: This version is forked from [https://github.com/jasny/sso](https://github.com/jasny/sso) which improved with the following features:
+
+- NGINX server support
+- Whitelist IP
+- Cache & Session 3rd party support
+
 Jasny\SSO is a relatively simply and straightforward solution for an single sign on (SSO) implementation. With SSO,
 logging into a single website will authenticate you for all affiliate sites.
 
