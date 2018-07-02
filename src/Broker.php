@@ -212,7 +212,7 @@ class Broker
             curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
         }
 
-        $response = curl_exec($ch);
+        $response = curl_exec($ch); 
         if (curl_errno($ch) != 0) {
             $message = 'Server request failed: ' . curl_error($ch);
             throw new Exception($message);
@@ -230,8 +230,12 @@ class Broker
         if ($httpCode == 403) {
             $this->clearToken();
             throw new NotAttachedException($data['error'] ?: $response, $httpCode);
+        } elseif ($httpCode == 307) {
+            header("Location: ".$data['error'], true, 307);
+            exit();
+        } elseif ($httpCode >= 400) {
+            throw new Exception($data['error'] ?: $response, $httpCode);
         }
-        if ($httpCode >= 400) throw new Exception($data['error'] ?: $response, $httpCode);
 
         return $data;
     }
