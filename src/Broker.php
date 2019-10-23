@@ -63,7 +63,13 @@ class Broker
         $this->secret = $secret;
         $this->cookie_lifetime = $cookie_lifetime;
 
-        if (isset($_COOKIE[$this->getCookieName()])) $this->token = $_COOKIE[$this->getCookieName()];
+        if (isset($_COOKIE[$this->getCookieName()])) {
+            $this->token = $_COOKIE[$this->getCookieName()];
+        }
+
+        if (isset($_COOKIE[$this->getCookieName().'_user'])) {
+            $this->userinfo = json_decode($this->decrypt($_COOKIE[$this->getCookieName().'_user']), true);
+        }
     }
 
     /**
@@ -240,6 +246,23 @@ class Broker
         return $data;
     }
 
+    /**
+     * Encrypt the data
+     * @param  string $value
+     * @return string
+     */
+    protected function encrypt($value) {
+        return openssl_encrypt($value, 'AES-128-ECB', $this->token);
+    } 
+
+    /**
+     * Decrypt the data
+     * @param  string $value
+     * @return string
+     */
+    protected function decrypt($value) { 
+        return openssl_decrypt($value, 'AES-128-ECB', $this->token);
+    }
 
     /**
      * Log the client in at the SSO server.
@@ -280,6 +303,8 @@ class Broker
     {
         if (!isset($this->userinfo)) {
             $this->userinfo = $this->request('GET', 'userInfo');
+            // Store in cookie for optimization
+            setcookie($this->getCookieName().'_user', $this->encrypt(json_encode($this->userinfo)), time() + $this->cookie_lifetime, '/');
         }
 
         return $this->userinfo;
