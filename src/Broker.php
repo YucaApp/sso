@@ -291,6 +291,9 @@ class Broker
      */
     public function logout()
     {
+        // Clear userInfo cookie
+        setcookie($this->getCookieName().'_user', null, 1, '/');
+        // Send logout request
         $this->request('POST', 'logout', 'logout');
     }
 
