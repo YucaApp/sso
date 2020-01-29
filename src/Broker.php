@@ -37,13 +37,13 @@ class Broker
      * User info recieved from the server.
      * @var array
      */
-    protected $userinfo;
+    protected $userInfo;
 
     /**
      * Cookie lifetime
      * @var int
      */
-    protected $cookie_lifetime;
+    protected $cookieLifetime;
 
     /**
      * Class constructor
@@ -52,7 +52,7 @@ class Broker
      * @param string $broker My identifier, given by SSO provider.
      * @param string $secret My secret word, given by SSO provider.
      */
-    public function __construct($url, $broker, $secret, $cookie_lifetime = 3600)
+    public function __construct($url, $broker, $secret, $cookieLifetime = 3600)
     {
         if (!$url) throw new \InvalidArgumentException("SSO server URL not specified");
         if (!$broker) throw new \InvalidArgumentException("SSO broker id not specified");
@@ -61,14 +61,10 @@ class Broker
         $this->url = $url;
         $this->broker = $broker;
         $this->secret = $secret;
-        $this->cookie_lifetime = $cookie_lifetime;
+        $this->cookieLifetime = $cookieLifetime;
 
         if (isset($_COOKIE[$this->getCookieName()])) {
             $this->token = $_COOKIE[$this->getCookieName()];
-        }
-
-        if (isset($_COOKIE[$this->getCookieName().'_user'])) {
-            $this->userinfo = json_decode($this->decrypt($_COOKIE[$this->getCookieName().'_user']), true);
         }
     }
 
@@ -106,7 +102,7 @@ class Broker
         if (isset($this->token)) return;
 
         $this->token = base_convert(md5(uniqid(rand(), true)), 16, 36);
-        setcookie($this->getCookieName(), $this->token, time() + $this->cookie_lifetime, '/');
+        setcookie($this->getCookieName(), $this->token, time() + $this->cookieLifetime, '/');
     }
 
     /**
@@ -151,23 +147,33 @@ class Broker
     /**
      * Attach our session to the user's session on the SSO server.
      *
-     * @param string|true $returnUrl  The URL the client should be returned to after attaching
+     * @param array|true $returnUrl  The URL the client should be returned to after attaching
      */
     public function attach($returnUrl = null)
     {
-        if ($this->isAttached()) return;
+        if ($this->isAttached()) {
+            return true;
+        }
 
         if ($returnUrl === true) {
             $protocol = !empty($_SERVER['HTTPS']) ? 'https://' : 'http://';
             $returnUrl = $protocol . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+            $params = ['return_url' => $returnUrl];
+            $url = $this->getAttachUrl($params);
+    
+            header("Location: $url", true, 307);
+            echo "You're redirected to <a href='$url'>$url</a>";
+            exit();
+        } else {
+            $data = $this->request('get', 'attach');
+            if (isset($data['error'])) {
+                throw new Exception($data['error']);
+            } elseif (!isset($data['success'])) {
+                throw new Exception('Error: '.print_r($data, 1));
+            }
+
+            return $data;
         }
-
-        $params = ['return_url' => $returnUrl];
-        $url = $this->getAttachUrl($params);
-
-        header("Location: $url", true, 307);
-        echo "You're redirected to <a href='$url'>$url</a>";
-        exit();
     }
 
     /**
@@ -193,32 +199,41 @@ class Broker
      */
     protected function request($method, $command, $data = null)
     {
-        if (!$this->isAttached()) {
-            throw new NotAttachedException('No token');
-        }
-
         if ($data && is_string($data)) {
             $key = $data;
             $data = [];
             $data[$key] = 1;
         }
+        
+        $headers = ['Accept: application/json'];
+        
+        if ($command == 'attach') {
+            $url = $this->getAttachUrl();
+        } else {
+            if (!$this->isAttached()) {
+                throw new NotAttachedException('No token');
+            }
 
-        $data['access_token'] = $this->getSessionID();
-        $data['referer_url'] = (!empty($_SERVER['HTTPS']) ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
-        $data['referer_ip'] = isset($_SERVER['SERVER_ADDR']) ? $_SERVER['SERVER_ADDR'] : $_SERVER['REMOTE_ADDR'];
-        $url = $this->getRequestUrl($command, !$data || $method === 'POST' ? [] : $data);
+            // Set access_token
+            $data['access_token'] = $this->getSessionID();
+            $headers[] = 'Authorization: Bearer '. $data['access_token'];
+    
+            $data['referer_url'] = (!empty($_SERVER['HTTPS']) ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+            $data['referer_ip'] = isset($_SERVER['SERVER_ADDR']) ? $_SERVER['SERVER_ADDR'] : $_SERVER['REMOTE_ADDR'];
+            $url = $this->getRequestUrl($command, !$data || $method === 'POST' ? [] : $data);
+        }
 
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Accept: application/json', 'Authorization: Bearer '. $data['access_token']]);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 
         if ($method === 'POST' && !empty($data)) {
             $post = is_string($data) ? $data : http_build_query($data);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
         }
 
-        $response = curl_exec($ch); 
+        $response = curl_exec($ch);
         if (curl_errno($ch) != 0) {
             $message = 'Server request failed: ' . curl_error($ch);
             throw new Exception($message);
@@ -247,24 +262,6 @@ class Broker
     }
 
     /**
-     * Encrypt the data
-     * @param  string $value
-     * @return string
-     */
-    protected function encrypt($value) {
-        return openssl_encrypt($value, 'AES-128-ECB', $this->token);
-    } 
-
-    /**
-     * Decrypt the data
-     * @param  string $value
-     * @return string
-     */
-    protected function decrypt($value) { 
-        return openssl_decrypt($value, 'AES-128-ECB', $this->token);
-    }
-
-    /**
      * Log the client in at the SSO server.
      *
      * Only brokers marked trused can collect and send the user's credentials. Other brokers should omit $username and
@@ -281,9 +278,9 @@ class Broker
         if (!isset($password) && isset($_POST['password'])) $password = $_POST['password'];
 
         $result = $this->request('POST', 'login', compact('username', 'password'));
-        $this->userinfo = $result;
+        $this->userInfo = $result;
 
-        return $this->userinfo;
+        return $this->userInfo;
     }
 
     /**
@@ -291,8 +288,6 @@ class Broker
      */
     public function logout()
     {
-        // Clear userInfo cookie
-        setcookie($this->getCookieName().'_user', null, 1, '/');
         // Send logout request
         $this->request('POST', 'logout', 'logout');
     }
@@ -304,13 +299,11 @@ class Broker
      */
     public function getUserInfo()
     {
-        if (!isset($this->userinfo)) {
-            $this->userinfo = $this->request('GET', 'userInfo');
-            // Store in cookie for optimization
-            setcookie($this->getCookieName().'_user', $this->encrypt(json_encode($this->userinfo)), time() + $this->cookie_lifetime, '/');
+        if (empty($this->userInfo)) {
+            $this->userInfo = $this->request('GET', 'userInfo');
         }
 
-        return $this->userinfo;
+        return $this->userInfo;
     }
 
     /**
