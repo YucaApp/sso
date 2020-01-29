@@ -10,6 +10,12 @@ namespace Yuca\SSO;
 class Broker
 {
     /**
+     * Version of SSO Broker
+     * @var string
+     */
+    protected $version = 'v1';
+
+    /**
      * Url of SSO server
      * @var string
      */
@@ -78,7 +84,7 @@ class Broker
      */
     protected function getCookieName()
     {
-        return 'sso_token_' . preg_replace('/[_\W]+/', '_', strtolower($this->broker));
+        return "sso_{$this->version}_token_" . preg_replace('/[_\W]+/', '_', strtolower($this->broker));
     }
 
     /**
